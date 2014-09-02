@@ -1,0 +1,10 @@
+{
+    "name": "embree",
+    "version": "0.0.1",
+    "description": "A objectified wrapper around the embree-renderer cli",
+    "author": "Henryk Wollik",
+    "main" : "index.js",
+    "private" : true,
+    "repository" : "automat/embree.js",
+    "license": "MIT"
+}
