@@ -2,25 +2,26 @@ D R A F T
 
 # embree.js
 
-An objectified wrapper around the Intel embree 2 renderer cli.
-Although intended to be used with a custom renderer, it fully supports 
-Intel´s example renderer (https://github.com/embree/embree-renderer).
-embree.js is mainly used in combination with tools for generating geometry and
-used as an 'injected' renderer. 
+An object oriented wrapper around the cli introduced by Intel Embree 2 
+sample renderer. Although originally intended to be used with a custom
+version of the render it is fully usable with the example ray tracing kernels
+implementation (https://github.com/embree/embree-renderer)
+Embree.js is used in combination with tools for generating geometry
+and used a an alternative render target. (eg. develop in webgl, render in embree.js)
+
 
 ## Installation
 
 When used with the embree example renderer, download the binaries according to 
-your system specs from http://embree.github.io/renderer.html, and move them 
+your system specifications from http://embree.github.io/renderer.html, and move them 
 to lib/
 
 Afterwards link embree.js as a local module.
     
     npm link 
-
     
 
-## Sample
+## Example - Basic Setup
 
     var embree = require('embree');
     
@@ -41,6 +42,9 @@ Afterwards link embree.js as a local module.
     }
     
     embree.render(scene,opts);
+   
+    
+## Example - Materials & Lights    
     
 ## Documentation
     
