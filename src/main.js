@@ -3,7 +3,7 @@ var spawn = require('child_process').spawn,
     fs = require('fs');
 
 const RENDERER_DEBUG = 'debug',
-      RENDERER_PATHTRACER = 'pathtracer';
+      RENDERER_PATH_TRACER = 'pathtracer';
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -226,27 +226,116 @@ Sphere.constructor = Sphere;
  * @param {Array} motions - motion array
  * @param {Array} normals - normal array (can be empty)
  * @param {Array} texcoords - texcoords (can be empty)
- * @param {Array} indices - triangle indices array
+ * @param {Array} triangles - triangle indices array
  * @param material
  * @constructor
  */
 
-function TriangleMesh(positions, motions, normals, texcoords, indices, material) {
+function TriangleMesh(positions, motions, normals, texcoords, triangles, material) {
     Shape.call(this,material);
     this.positions = positions;
     this.motions = motions;
     this.normals = normals;
     this.texcoords = texcoords;
-    this.indices = indices;
+    this.triangles = triangles;
 }
 TriangleMesh.prototype = Object.create(Shape.prototype);
 TriangleMesh.constructor = TriangleMesh;
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////
+//  T R A N S F O R M
+////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+function TransformBegin(){}
+function TransformEnd(){}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////
 //  L I G H T
 ////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+/**
+ * Implements an ambient light. An ambient light behaves like a
+ * uniform environment map.
+ * @param {number[]} [intensity] - Radiant intensity
+ * @constructor
+ */
 
+function AmbientLight(intensity){
+    this.intensity = intensity || [1,1,1];
+}
+
+/**
+ * Implements a point light source
+ * @param {number[]} [intensity] - Radiant intensity
+ * @param {number[]} [position] - Position of the point light
+ * @constructor
+ */
+
+function PointLight(intensity,position){
+    this.position = position || [300,300,300];
+    this.intensity = intensity || [50,50,50];
+}
+
+/**
+ * Implements a distant light.  The distant light illuminates from
+ * infinity from a cone of directions. This simulates the light
+ * field of a far away big object like the sun.
+ * @param {number[]} [intensity] - Radiant intensity
+ * @param {number[]} [direction] - Negative light direction
+ * @param {number} [halfangle] - Half illumination angle
+ * @constructor
+ */
+
+function DistantLight(intensity,direction,halfangle){
+    this.direction = direction || [-1,0,0];
+    this.intensity = intensity || [50,50,50];
+    this.halfangle = halfangle === undefined ? 180 : halfangle || 0;
+}
+
+/**
+ * Implements a triangle shaped area light.
+ * @param {number[]} [intensity] - Radiant intensity
+ * @param {number[]} [p] - First vertex of the triangle
+ * @param {number[]} [u] - Second vertex of the triangle
+ * @param {number[]} [v] - Third vertex of the triangle
+ * @constructor
+ */
+
+function TriangleLight(intensity,p,u,v){
+    this.p0 = p || [0,400,0];
+    this.p1 = u || [0,0,100];
+    this.p2 = v || [100,0,0];
+    this.intensity = intensity || [50,50,50];
+}
+
+/**
+ * Implements a quad shaped area light.
+ * @param {number[]} [intensity]
+ * @param {number[]} [position] -
+ * @param {number[]} [u]
+ * @param {number[]} [v]
+ * @constructor
+ */
+
+function QuadLight(intensity,position,u,v){
+    this.position = position || [0, 400, 0];
+    this.u = u || [100,0,0];
+    this.v = v || [0,0,100];
+    this.intensity = intensity || [50,50,50];
+}
+
+/**
+ * Implements a texture mapped environment light.
+ * @param {number[]} intensity - Radiant intensity
+ * @param {string} image - The image mapped to the environment
+ * @constructor
+ */
+
+function HDRILight(intensity,image){
+    this.intensity = intensity;
+    this.image = image;
+}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////
 //  C A M E R A
@@ -293,11 +382,6 @@ function CameraDOF(){
      * @type {number}
      */
     this.radius = 0;
-    /**
-     * Distance of the focal plane
-     * @type {number}
-     */
-    this.focalDistance = 100;
 }
 
 CameraDOF.prototype = Object.create(CameraPinhole.prototype);
@@ -322,7 +406,11 @@ function Scene(){
      * Objects to be rendered.
      * @type {Array}
      */
-    this.objects = [];
+    this._objects = [];
+    this._transformsRef = [];
+
+    this._numObjects = 0;
+
     /**
      * Lights used.
      * @type {Array}
@@ -332,22 +420,136 @@ function Scene(){
     this.backplateImage = '';
 }
 
+Scene.prototype.addLight = function(light){
+
+};
+
+Scene.prototype.removeLight = function(light){
+
+};
+
+Scene.prototype.addObject = function(obj){
+    var objs = this._objects;
+    if(this._numObjects > 0){
+        var i = -1, l = objs.length;
+        while(++i < l){
+            if(objs[i] == obj){
+                return;
+            }
+        }
+    }
+    objs.push(obj);
+    this._numObjects++;
+};
+
+Scene.prototype.removeObject = function(obj){
+    var numObjects = this._numObjects;
+    if(numObjects == 0){
+        return;
+    }
+    var objs = this._objects;
+    var i = -1, l = objs.length;
+    while(++i < l){
+        if(objs[i] == obj ){
+            objs.splice(i,1);
+            this._numObjects = Math.max(numObjects - 1,0);
+            var refs = this._transformsRef,ref;
+            var j = -1, k = refs.length;
+            while(++j < k){
+                ref = refs[j];
+                if(ref > i){
+                    refs[j] = Math.max(ref - 1,0);
+                }
+            }
+            return;
+        }
+    }
+};
+
+/**
+ * Push a new transform on the transform stack
+ */
 
 Scene.prototype.push = function(){
-
+    var objs = this._objects;
+    objs.push(new TransformBegin());
+    this._transformsRef.push(objs.length - 1);
 };
 
 Scene.prototype.pop = function(){
-
+    var transformsRef = this._transformsRef;
+    if(transformsRef.length == 0){
+        return;
+    }
+    this._objects.push(new TransformEnd());
+    transformsRef.pop();
 };
+
+/**
+ * Translate by xyz.
+ * @param x
+ * @param y
+ * @param z
+ */
 
 Scene.prototype.translate = function(x,y,z){
-
+    var transformsRef = this._transformsRef;
+    if(transformsRef.length == 0){
+        return;
+    }
+    this._objects[transformsRef[transformsRef.length - 1]].translate = [x,y,z];
 };
+
+/**
+ * Scale by xyz.
+ * @param x
+ * @param y
+ * @param z
+ */
 
 Scene.prototype.scale = function(x,y,z){
-
+    var transformsRef = this._transformsRef;
+    if(transformsRef.length == 0){
+        return;
+    }
+    this._objects[transformsRef[transformsRef.length - 1]].scale = [x,y,z];
 };
+
+/**
+ * Rotate by xyz.
+ * @param x
+ * @param y
+ * @param z
+ */
+
+Scene.prototype.rotate = function(x,y,z){
+    var transformsRef = this._transformsRef;
+    if(transformsRef.length == 0){
+        return;
+    }
+    var transform = this._objects[transformsRef[transformsRef.length - 1]];
+    transform.rotate_x = x || 0;
+    transform.rotate_y = y || 0;
+    transform.rotate_z = z || 0;
+};
+
+/**
+ * Rotate by angle and axis.
+ * @param rotate
+ * @param axis
+ */
+
+Scene.prototype.rotateAxis = function(rotate,axis){
+    var transformsRef = this._transformsRef;
+    if(transformsRef.length == 0){
+        return;
+    }
+    var transform = this._objects[transformsRef[transformsRef.length - 1]];
+    transform.rotate = rotate;
+    transform.axis = axis;
+};
+
+
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -501,6 +703,10 @@ function writeObj(obj){
         rep = writeSphere(obj);
     } else if( obj instanceof TriangleMesh){
         rep = writeTriangleMesh(obj);
+    } else if( obj instanceof TransformBegin){
+        rep = writeTransformBegin(obj);
+    } else if( obj instanceof TransformEnd){
+        rep = writeTransformEnd();
     }
     return rep;
 }
@@ -622,8 +828,8 @@ function writeTriangleMesh(triangleMesh){
     if(!triangleMesh.positions || triangleMesh.positions.length == 0){
         throw new ErrorObjPropertyInvalid(SHAPE_ID,'positions',triangleMesh.positions);
     }
-    if(!triangleMesh.indices || triangleMesh.indices.length == 0){
-        throw new ErrorObjPropertyInvalid(SHAPE_ID,'indices',triangleMesh.indices);
+    if(!triangleMesh.triangles || triangleMesh.triangles.length == 0){
+        throw new ErrorObjPropertyInvalid(SHAPE_ID,'triangles',triangleMesh.triangles);
     }
 
     var numPositions = triangleMesh.positions.length;
@@ -663,22 +869,35 @@ function writeTriangleMesh(triangleMesh){
         }
         obj.texcoords = triangleMesh.texcoords;
     }
-    obj.indices = triangleMesh.indices;
+    obj.triangles = triangleMesh.triangles;
+    obj.material = packMaterial(triangleMesh.material);
     return writeXmlObj(SHAPE_ID,obj);
+}
+
+function writeTransformBegin(transform){
+    var str = '<Transform>';
+    for(var p in transform){
+        str += parseProp(transform[p]);
+    }
+    return str;
+}
+
+function writeTransformEnd(){
+    return '</Transform>';
 }
 
 /*
  * Error scene
  */
 
-function NoSceneObjsError(){
+function ErrorSceneNoObjs(){
     Error.apply(this);
-    Error.captureStackTrace(this, NoSceneObjsError);
-    this.name = 'NoSceneObjsError';
-    this.message = 'The scene to be raytraced does not contain any objects.';
+    Error.captureStackTrace(this, ErrorSceneNoObjs);
+    this.name = 'ErrorSceneNoObjs';
+    this.message = 'The scene to be raytraced does not contain any _objects.';
 }
-NoSceneObjsError.prototype = Object.create(Error.prototype);
-NoSceneObjsError.constructor = NoSceneObjsError;
+ErrorSceneNoObjs.prototype = Object.create(Error.prototype);
+ErrorSceneNoObjs.constructor = ErrorSceneNoObjs;
 
 const SCENE_BEGIN = '<?xml version="1.0"?><scene><Group>',
       SCENE_END   = '</Group></scene>';
@@ -688,20 +907,20 @@ const SCENE_BEGIN = '<?xml version="1.0"?><scene><Group>',
  */
 
 function process_(scene){
-    var objs = scene.objects;
-    var len = objs.length;
+    var objects = scene._objects,
+        lights  = scene.lights;
+    var len = objects.length;
 
     if(len == 0){
-        throw new NoSceneObjsError();
+        throw new ErrorSceneNoObjs();
     }
 
     var xmlStr = SCENE_BEGIN;
-    var i = -1, l = objs.length;
+    var i = -1, l = objects.length;
     while(++i < l){
-        xmlStr += writeObj(objs[i]);
+        xmlStr += writeObj(objects[i]);
     }
     xmlStr += SCENE_END;
-    xmlStr = formatXml(xmlStr);
 
     var camera = scene.camera;
 
@@ -711,10 +930,28 @@ function process_(scene){
         addArg('-vi',camera.target) +
         addArg('-vu',camera.up) +
         addArg('-angle',camera.fov) +
-        addArg('-radius',camera.radius || false) +
-        addArg('-quadlight',[213, 548.77, 227, 130, 0, 0, 0, 0, 105, 50, 50, 50]) +
-        addArg('-ambientlight',[0.5,0.5,0.5]);
+        addArg('-radius',camera.radius || false);
 
+    i = -1; l = lights.length;
+    var light, p, argstr,type;
+    var argpoststr = '';
+    while(++i < l){
+        light = lights[i];
+        type = light.constructor.name.toLowerCase();
+        argstr = '';
+        for(p in light){
+            argstr += parseProp(light[p]) + ' ';
+        }
+        argstr = '-'+type + '  ' + argstr + '\n';
+        if(type == 'ambientlight' || type == 'pointlight'){
+            argpoststr += argstr;
+        } else {
+            ecsStr += argstr;
+        }
+    }
+    ecsStr += argpoststr;
+
+    console.log(ecsStr);
 
     return {xml:xmlStr,ecs:ecsStr};
 }
@@ -728,7 +965,7 @@ function render(scene,options){
     options.width                 = options.width || 800;
     options.height                = options.height || 600;
     options.fullscreen            = options.fullscreen || false;
-    options.renderer              = options.renderer || RENDERER_PATHTRACER;
+    options.renderer              = options.renderer || RENDERER_PATH_TRACER;
     options.gamma                 = options.gamma === undefined ? 1 : options.gamma;
     options.depth                 = options.depth || 16;
     options.spp                   = options.spp || 1;
@@ -748,7 +985,7 @@ function render(scene,options){
 
     fs.mkdirSync(tmpDir);
 
-    fs.writeFileSync(tmpXmlPath,scene.xml);
+    fs.writeFileSync(tmpXmlPath,options.keepSceneFiles ? formatXml(scene.xml) : scene.xml);
     scene.ecs = addArg('-i',tmpXmlPath) +
                 scene.ecs +
                 addArg('-size',       options.width, options.height) +
@@ -816,13 +1053,20 @@ module.exports = {
     Sphere : Sphere,
     TriangleMesh : TriangleMesh,
 
+    AmbientLight : AmbientLight,
+    PointLight : PointLight,
+    DistantLight : DistantLight,
+    TriangleLight : TriangleLight,
+    QuadLight : QuadLight,
+    HDRILight : HDRILight,
+
     ErrorObjPropertyInvalid : ErrorObjPropertyInvalid,
     ErrorObjPropertyExpectedNotValid : ErrorObjPropertyExpectedNotValid,
     ErrorObjMaterialInvalid : ErrorObjMaterialInvalid,
-    NoSceneObjError : NoSceneObjsError,
+    NoSceneObjError : ErrorSceneNoObjs,
 
     RENDERER_DEBUG : RENDERER_DEBUG,
-    RENDERER_PATHTRACER : RENDERER_PATHTRACER,
+    RENDERER_PATH_TRACER : RENDERER_PATH_TRACER,
 
     CameraPinhole : CameraPinhole,
     CameraDOF : CameraDOF,
